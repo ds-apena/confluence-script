@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html>
+<head>
+</head>
+<body>
+
+<form action="" id="form">
+    <h1>Test - Add watcher for confluence Subtree</h1>
+    <input type="text" id="pageName" class="form-control" placeholder="Enter any page name"> <br>
+    <input type="password" id="token" class="form-control" placeholder="Enter your authentication token">
+    <button type="submit">Submit</button>
+</form>
+
+<script>
+    const API_ENDPOINT = "https://confluence.doubleslash.de/confluence/rest/api";
+
+    let requestHeader = {
+        credentials: "same-origin",
+        headers: {
+            "Content-Type": "application/json",
+            "Authentication": ""
+        }
+    }
+
+    let loginForm = document.getElementById("form");
+
+    loginForm.addEventListener("submit", (e) => {
+        e.preventDefault();
+
+        let pageName = document.getElementById("pageName");
+        let userToken = document.getElementById("token");
+
+        const isTokenValid = checkTokenValidity(userToken.value);
+        // console.log(isTokenValid);
+
+        // if(pageName?.trim() && isTokenValid) {
+        // Set valid token in request header (independent function)
+        // console.log(requestHeader.headers["Authentication"]);
+        // requestHeader.headers["Authentication"] = `Bearer ${userToken}`;
+
+        // init(pageName);
+        // } else {    
+        // alert("Ensure you input a valid name!");
+        // }
+    });
+
+    // Header seems to be ok. However, request keeps failing.
+
+    async function checkTokenValidity(userToken) {
+        const url = `${API_ENDPOINT}/accessMode`;
+        const header = {
+            credentials: "same-origin",
+            headers: {
+                "Content-Type": "application/json",
+                "Authentication": `Bearer ${userToken}`
+            }
+        }
+
+        console.log(header);
+
+        fetch(url, header)
+            .then((response) => {
+                const responseStatus = response.status;
+                console.log(responseStatus);
+
+                let isValid = false;
+                if (responseStatus >= 200 && responseStatus <= 299)
+                    isValid = true;
+
+                return isValid;
+            })
+            .catch((err) => console.log(err));
+    }
+
+    async function init(pageName) {
+
+        const validPageName = formatPageName(pageName);
+
+        // TODO: Fix both getContentId and isWatchingContent functions, return type undefined. Return value is needed to execute following functions.
+
+        // GET-Request: Get content Id
+        // const contentId = "209685802";
+        // const contentId = getContentId(pageName);
+        // console.log(contentId);
+        // const isWatching = await isWatchingContent(contentId);
+        // console.log(isWatching);
+        // watchSubTree(contentId);
+    }
+
+    function formatPageName(pageName) {
+        return pageName.replaceAll(" ", "%20");
+    }
+
+    function getContentId(pageName) {
+        const url = `${API_ENDPOINT}/content?title=${pageName}&expand=space,body.view`;
+        requestHeader["method"] = "GET";
+
+        fetch(url, requestHeader)
+            .then((response) => {
+                response.json().then((data) => {
+                    for (var i = 0; i < data.results.length; i++) {
+                        var entry = data.results[i];
+                        const contentId = entry.id;
+                        return contentId;
+                    }
+                })
+            })
+            .catch((err) => console.log(err));
+    }
+
+    function watchSubTree(contentId) {
+        if (!isWatchingContent(contentId)) {
+            console.log(`Adding content watcher for ${contentId}.`);
+            addContentWatcher(contentId);
+        }
+
+        console.log("Searching for children within tree structure");
+        const contentChildrenIds = getContentChildrenIds(contentId);
+        console.log(contentChildrenIds.length);
+
+        if (contentChildrenIds.length > 0) {
+            console.log(`Adding watchers for subpages of ${contentId}`);
+            contentChildrenIds.forEach(childId => watchSubTree(childId));
+        }
+    }
+
+    function isWatchingContent(contentId) {
+        const url = `${API_ENDPOINT}/user/watch/content/${contentId}`;
+        requestHeader["method"] = "GET";
+
+        fetch(url, requestHeader)
+            .then((response) => {
+                response.json().then((data) => {
+                    if (data.hasOwnProperty("watching")) {
+                        // Return value === undefined, but console.log shows correct value.
+                        return isWatching = data.watching;
+                    }
+                })
+            })
+            .catch((err) => console.log(err));
+    }
+
+    function addContentWatcher(contentId) {
+        const url = `${API_ENDPOINT}/user/watch/content/${contentId}`;
+        requestHeader["method"] = "POST";
+
+        fetch(url, requestHeader)
+            .then((response) => {
+                const statusCode = response.status;
+                if (statusCode >= 200 && statusCode <= 299)
+                    console.log(`Watcher was created successfully. Status code: ${statusCode}`)
+            })
+            .catch((err) => console.log(err));
+    }
+
+    async function getContentChildrenIds(contentId) {
+        const url = `${API_ENDPOINT}/content/${contentId}/child?expand=page.body.VIEW`;
+        requestHeader["method"] = "GET";
+
+        fetch(url, requestHeader)
+            .then((response) => {
+                response.json().then((data) => {
+                    var contentChildrenIds = [];
+                    if (data.hasOwnProperty("page") && data.page.hasOwnProperty("results")) {
+                        for (var i = 0; i < data.page.results.length; i++) {
+                            var entry = data.page.results[i];
+                            if (entry instanceof Object && entry.hasOwnProperty("id")) {
+                                var childId = entry.id;
+                                contentChildrenIds.push(childId);
+                            }
+                        }
+                    }
+
+                    return contentChildrenIds;
+                })
+            })
+            .catch((err) => console.log(err));
+    }
+
+
+</script>
+</body>
+</html>
