@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Script zum Abonnieren von (Sub-)Bäumen in Confluence</title>
+</head>
+<body>
+<h1>Script zum Abonnieren von (Sub-)Bäumen in Confluence</h1>
+
+<form id="page-name-form" action="">
+  <label id="page-name-label" for="page-name">Page Name:</label><input id="page-name" type="text" name="page-name" placeholder="Enter a page name"><br>
+  <select name="spaceKeys" id="spaceKey">
+    <option selected="selected"> -Select an option- </option>
+    <option value="BD">Business Development</option>
+    <option value="P">Delivery</option>
+    <option value="V">Finanzen</option>
+    <option value="HR">HR / Personal</option>
+    <option value="IT">IT</option>
+    <option value="M">Marketing</option>
+    <option value="S">Sales</option>
+    <option value="CSR">CSR</option>
+    <option value="PROJEKT">Projektmanagement</option>
+    <option value="M">Marketing</option>
+    <option value="NWK">Nachwuchskräfte</option>
+    <option value="PT1">Team Michael</option>
+    <option value="PT3">Team Sebastian</option>
+    <option value="PT4">Team Nicky</option>
+    <option value="PT5">Team Johanne</option>
+    <option value="PT6">Team Wolfgang</option>
+    <option value="PT7">Team Regina</option>
+    <option value="PT8">Team Jürgen</option>
+    <option value="PT9">Team Zdravko</option>
+    <option value="PT10">Team Matthias</option>
+    <option value="PT11">Team Danny</option>
+    <option value="PT12">Team Bastian</option>
+    <option value="PT14">Team Marc</option>
+    <option value="PT15">Team Daniel</option>
+    <option value="PT16">Team Christian</option>
+    <option value="PT17">Team Kerstin</option>
+    <option value="PT18">Team Meike</option>
+  </select><br>
+  <button id="watch">Watch</button>
+  <button id="unwatch">Unwatch</button>
+</form>
+
+<!-- Check Confluence Documentation for reference about available API calls (https://docs.atlassian.com/atlassian-confluence/REST/6.6.0/). -->
+
+<script>
+  const apiEndpoint = "https://confluence.doubleslash.de/confluence/rest/api";
+
+  document.getElementById("watch").addEventListener("click", (e) => {
+    e.preventDefault();
+    const spaceKey = document.getElementById("spaceKey").value;
+    const pageName = document.getElementById("page-name").value.replaceAll(" ", "%20");
+    watchInit(spaceKey, pageName);
+  });
+
+  document.getElementById("unwatch").addEventListener("click", (e) => {
+    e.preventDefault();
+    const spaceKey = document.getElementById("spaceKey").value;
+    const pageName = document.getElementById("page-name").value.replaceAll(" ", "%20");
+    unwatchInit(spaceKey, pageName);
+  });
+
+  /**
+   * Initiate page watching mechanism.
+   * @param spaceKey Space key for the selected space.
+   * @param pageName Name of the upper-level page to watch.
+   */
+
+  async function watchInit(spaceKey, pageName) {
+    const contentId = await getContentId(spaceKey, pageName);
+    const pageTree = await getPageTree(contentId);
+    pageTree.map((pageId) => watchPage(pageId));
+  }
+
+  /**
+   * Initiate page un-watching mechanism.
+   * @param spaceKey Space key for the selected space.
+   * @param pageName Name of the upper-level page to unwatch.
+   */
+
+  async function unwatchInit(spaceKey, pageName) {
+    const contentId = await getContentId(spaceKey, pageName);
+    const pageTree = await getPageTree(contentId);
+    pageTree.map((pageId) => deleteWatcher(pageId));
+  }
+
+  /**
+   * Get the page ID (also known as contentId) by issuing a fetch request to the Confluence REST API.
+   * @param spaceKey Space key for the selected space.
+   * @param pageName Name of the upper-level page to unwatch.
+   * @returns pageId
+   */
+
+  async function getContentId(spaceKey, pageName) {
+    const page= await fetch(`${apiEndpoint}/content?spaceKey=${spaceKey}&title=${pageName}&expand=space,body.view`)
+            .then((response) => response.json());
+    const contentId = page.results.map(elem => elem.id);
+
+    if(!Boolean(contentId)) {
+      throw new Error("Page not found.");
+    } else {
+      return contentId;
+    }
+  }
+
+  /**
+   * Call the content watcher method and get value from API JSON response.
+   * @param contentId Also called pageId, unique identifier for a Confluence page.
+   */
+
+  async function watchPage(contentId) {
+    await addWatcher(contentId);
+    const watcherState = await getWatcherState(contentId);
+
+    if(!watcherState.watching) {
+      throw new Error(`Watcher for ${contentId} could not be added.`);
+    };
+  }
+
+  /**
+   * Add a content watcher for a specific page by using its contentId.
+   * @param contentId Unique identifier for a Confluence page.
+   */
+
+  async function addWatcher(contentId) {
+    await fetch(`${apiEndpoint}/user/watch/content/${contentId}`, {
+      method: "POST",
+      headers: new Headers({ "Content-Type": "application/json", "X-Atlassian-Token": "no-check" }),
+      credentials: "same-origin"
+    });
+  }
+
+  /**
+   * Get information about whether a user is watching a specified content. 
+   * @param contentId Unique identifier for a Confluence page.
+   */
+
+  async function getWatcherState(contentId) {
+    return await fetch(`${apiEndpoint}/user/watch/content/${contentId}`)
+            .then((response) => response.json());
+  }
+
+  /**
+   * Get underlying pages of a piece of content recursively.
+   * @param contentId Unique identifier for a Confluence page.
+   * @returns pageTree
+   */
+
+  async function getPageTree(contentId) {
+    let pageTree = [contentId];
+    const childrenIds = await getChildrenIds(contentId);
+    for (let i = 0; i < childrenIds.length; i++) {
+      const currentId = childrenIds[i];
+      const grandChildrenIds = await getChildrenIds(currentId);
+      if(grandChildrenIds.length > 0) {
+        pageTree = pageTree.concat(await getPageTree(currentId));
+      } else {
+        pageTree.push(currentId);
+      }
+    }
+
+    return pageTree;
+  }
+
+  /**
+   * Returns a map of the direct children Ids of a piece of content.
+   * @param contentId Unique identifier for a Confluence page.
+   * @returns childrenIds
+   */
+
+  async function getChildrenIds(contentId) {
+    const children = await fetch(`${apiEndpoint}/content/${contentId}/child?expand=page.body.VIEW`)
+            .then((response) => response.json());
+    this.children= children;
+    const childrenIds = children.page.results.map(child => child.id);
+
+    return childrenIds;
+  }
+
+  /**
+   * Delete an existing watcher for the given contentId.
+   * @param contentId Unique identifier for a Confluence page.
+   */
+
+  async function deleteWatcher(contentId) {
+    return await fetch(`${apiEndpoint}/user/watch/content/${contentId}`, {
+      method: "DELETE"
+    })
+            .then((response) => response.status);
+  }
+
+</script>
+</body>
+</html>
